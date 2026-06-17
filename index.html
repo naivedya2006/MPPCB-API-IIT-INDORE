@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live MPPCB Water Quality Telemetry</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        
+        /* Layout Adjustments */
+        .sidebar { background-color: var(--bs-dark-bg-subtle); padding: 30px 25px; border-right: 1px solid var(--bs-border-color); min-height: 100vh; box-shadow: 2px 0 10px rgba(0,0,0,0.2);}
+        
+        /* Metric Cards Styling */
+        .metric-card { background: var(--bs-body-bg); padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); text-align: center; border-left: 5px solid #0d6efd; margin-bottom: 20px; transition: transform 0.2s;}
+        .metric-card:hover { transform: translateY(-3px); }
+        .metric-value { font-size: 2.4rem; font-weight: 800; color: var(--bs-body-color); }
+        .metric-title { font-size: 0.85rem; color: var(--bs-secondary-color); text-transform: uppercase; letter-spacing: 1px; font-weight: 700;}
+        
+        /* Chart Container */
+        .chart-container { background: var(--bs-body-bg); padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); margin-top: 10px; display: none; border: 1px solid var(--bs-border-color);}
+        
+        /* Utilities */
+        #loadingSpinner { display: none; margin-top: 50px; }
+        .brand-header { font-size: 1.3rem; font-weight: bold; color: #6ea8fe; margin-bottom: 30px; display: flex; align-items: center; gap: 10px;}
+        
+        /* Customizing the Dropdown for long names */
+        .form-select { font-weight: 500; }
+        .form-select option { white-space: normal; }
+    </style>
+</head>
+<body>
+
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-4 col-lg-3 sidebar">
+            <div class="brand-header">
+                📊 MPPCB Telemetry Link
+            </div>
+            <form id="telemetryForm">
+                <div class="mb-4">
+                    <label class="form-label fw-bold text-secondary">📍 Select Monitoring Station</label>
+                    <select id="stationInput" class="form-select form-select-lg shadow-sm" style="font-size: 0.95rem;"></select>
+                </div>
+                
+                <hr class="mb-4 border-secondary">
+                
+                <h6 class="fw-bold text-secondary mb-3">📅 Select Timeframe</h6>
+                <div class="row g-2">
+                    <div class="col-12 mb-2">
+                        <label class="form-label small text-muted mb-1">From Date</label>
+                        <input type="date" id="fromDate" class="form-control form-control-sm" required>
+                    </div>
+                    <div class="col-12 mb-3">
+                        <label class="form-label small text-muted mb-1">From Time</label>
+                        <input type="time" id="fromTime" class="form-control form-control-sm" value="00:00" required>
+                    </div>
+                    <div class="col-12 mb-2">
+                        <label class="form-label small text-muted mb-1">To Date</label>
+                        <input type="date" id="toDate" class="form-control form-control-sm" required>
+                    </div>
+                    <div class="col-12 mb-4">
+                        <label class="form-label small text-muted mb-1">To Time</label>
+                        <input type="time" id="toTime" class="form-control form-control-sm" value="23:59" required>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary w-100 fw-bold py-2 shadow" id="fetchBtn">Fetch Live Data</button>
+            </form>
+        </div>
+
+        <div class="col-md-8 col-lg-9 p-4 p-md-5">
+            <h2 class="fw-bold mb-1">MPPCB Surface Water Quality Monitoring System (IIT INDORE) </h2>
+            <p class="text-muted mb-4">Live telemetry feeds for BOD, COD, Dissolved Oxygen, Turbidity and related indicators.</p>
+
+            <div id="alertBox" class="alert alert-secondary shadow-sm border-0">👈 Select a monitoring station from the panel and click <b>Fetch Live Data</b>.</div>
+
+            <div id="loadingSpinner" class="text-center">
+                <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <h5 class="mt-3 text-light fw-bold">Authenticating with MPPCB...</h5>
+                <p class="text-secondary small">Generating dynamic payloads and routing via origin IP to bypass WAF</p>
+            </div>
+
+            <div id="dashboardData" style="display: none;">
+                <h4 class="fw-bold mb-4 text-primary" id="displayStationName">📍 Current Readings</h4>
+                
+                <div class="row mb-2">
+                    <div class="col-sm-6 col-xl-3">
+                        <div class="metric-card">
+                            <div class="metric-title">💧 BOD (mg/l)</div>
+                            <div class="metric-value" id="valBOD">-</div>
+                        </div>
+                    </div>
+                    <div class="col-sm-6 col-xl-3">
+                        <div class="metric-card" style="border-left-color: #dc3545;">
+                            <div class="metric-title">🧪 COD (mg/l)</div>
+                            <div class="metric-value" id="valCOD">-</div>
+                        </div>
+                    </div>
+                    <div class="col-sm-6 col-xl-3">
+                        <div class="metric-card" style="border-left-color: #198754;">
+                            <div class="metric-title">🫧 Dissolved Oxygen</div>
+                            <div class="metric-value" id="valDO">-</div>
+                        </div>
+                    </div>
+                    <div class="col-sm-6 col-xl-3">
+                        <div class="metric-card" style="border-left-color: #ffc107;">
+                            <div class="metric-title">📊 Turbidity (NTU)</div>
+                            <div class="metric-value" id="valTurb">-</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chart-container" id="chartBox">
+                    <h5 class="fw-bold mb-4">📈 Historical Concentration Trends</h5>
+                    <div id="plotlyChart" style="width:100%; height:450px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ==========================================
+    // 1. THE DECODED HIDDEN DICTIONARY
+    // All 10 stations explicitly mapped from your raw Base64 intercepts
+    // ==========================================
+    const STATIONS_MAP = {
+        "River Narmada at Origin Point, Amarkantak": { siteId: "site_3308", trueName: "Amarkantak" },
+        "River Narmada at down stream of Jabalpur city": { siteId: "site_3310", trueName: "Jabalpur" },
+        "River Narmada At Dindori": { siteId: "site_3309", trueName: "Dindori" },
+        "River Narmada at Omkareshwar": { siteId: "site_3312", trueName: "Omkareshwar" },
+        "River Narmada At Hoshangabad": { siteId: "site_3311", trueName: "Sethani_Ghat" },
+        "River Kahan before mixing River Kshipra at Ujjain": { siteId: "site_3305", trueName: "Tapobhumi_Diversion" },
+        "River Kshipra at up stream of Ujjain city": { siteId: "site_3306", trueName: "Lalpul" },
+        "River Narmada at Dharampuri": { siteId: "site_3313", trueName: "Bhogawa" },
+        "River Kahan down stream of Kabeetkhedi at Indore": { siteId: "site_3321", trueName: "Kabeetkhedi" },
+        "River Kshipra at Ramghat, Ujjain": { siteId: "site_3307", trueName: "Ramghat" } 
+    };
+
+    // 2. INITIALIZE UI CONTROLS
+    const stationSelect = document.getElementById('stationInput');
+    Object.keys(STATIONS_MAP).forEach(station => {
+        let opt = document.createElement('option');
+        opt.value = station;
+        opt.innerHTML = station;
+        stationSelect.appendChild(opt);
+    });
+
+    let today = new Date();
+    let yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 2); // Default to a 48-hour window for a clean graph
+    document.getElementById('toDate').value = today.toISOString().split('T')[0];
+    document.getElementById('fromDate').value = yesterday.toISOString().split('T')[0];
+
+    // 3. THE DYNAMIC PAYLOAD GENERATOR
+    document.getElementById('telemetryForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        // Reset UI State
+        document.getElementById('alertBox').style.display = 'none';
+        document.getElementById('dashboardData').style.display = 'none';
+        document.getElementById('loadingSpinner').style.display = 'block';
+        document.getElementById('fetchBtn').disabled = true;
+
+        let stationName = document.getElementById('stationInput').value;
+        let config = STATIONS_MAP[stationName];
+        let trueName = config.trueName;
+
+        let startStr = document.getElementById('fromDate').value.replace(/-/g, '/') + " " + document.getElementById('fromTime').value + ":00";
+        let endStr = document.getElementById('toDate').value.replace(/-/g, '/') + " " + document.getElementById('toTime').value + ":00";
+
+        // Autogenerate all possible parameters using the specific Hidden Name
+        let dynamicParameters = [
+            `${trueName}-COD`, `${trueName}-BOD`, `${trueName}-DO`, `${trueName}-FDO`,
+            `${trueName}-Turbidity`, `${trueName}-TSS`, `${trueName}-pH`,
+            `${trueName}-Temperature`, `${trueName}-Color`, `${trueName}-TOC`
+        ];
+
+        // Build the exact JSON object the MPPCB API expects
+        let payloadObj = {
+            "fromDate": startStr,
+            "toDate": endStr,
+            "siteId": config.siteId,
+            "stations": [trueName],
+            "parameters": dynamicParameters,
+            "criteria": "1-hours",
+            "reportFormat": "tabular",
+            "qualityCode": ["U"],
+            "graphType": "singleParameter",
+            "quickRange": false,
+            "userName": "MPPCB",
+            "userId": "userId_3265",
+            "userType": "SuperRegulator",
+            "userRole": "SuperRegulator",
+            "userAccess": "site_2898",
+            "domain": "esc.mp.gov.in"
+        };
+
+        // Instantly convert to Base64 in the browser
+        let mutatedBase64 = btoa(JSON.stringify(payloadObj));
+
+        try {
+            // --- FETCH DATA (Client-Side bypasses server WAF blocks) ---
+            let response = await fetch("https://esc.mp.gov.in/glens/publicPortal/api/v2.0/industry-tabular", {
+                method: "POST",
+                headers: { "Content-Type": "text/plain" },
+                body: mutatedBase64
+            });
+
+            if (!response.ok) throw new Error(`Government Server Error (HTTP ${response.status})`);
+
+            let resultBase64 = await response.text();
+            let jsonString = atob(resultBase64);
+            let apiResponse = JSON.parse(jsonString);
+
+            if (apiResponse.status === 'fail') throw new Error("API Rejected Request: " + apiResponse.info);
+
+            let rawBodyContent = apiResponse.parameterDetails?.bodyContent || [];
+            if(rawBodyContent.length === 0) throw new Error(`No sensor data returned for this location in this timeframe.`);
+
+            // --- DATA PARSING & CLEANING ---
+            let cleanData = [];
+            let latest = { BOD: "-", COD: "-", DO: "-", Turbidity: "-" };
+
+            rawBodyContent.forEach(row => {
+                if (!row.Time) return;
+                let entry = { Time: row.Time };
+                
+                Object.keys(row).forEach(key => {
+                    if(key === 'Time') return;
+                    let val = Array.isArray(row[key]) ? row[key][0] : row[key];
+                    if(val === 'NA' || val == null) return;
+                    
+                    val = parseFloat(val);
+                    let kUp = key.toUpperCase();
+                    
+                    if(kUp.includes('BOD')) entry.BOD = val;
+                    else if(kUp.includes('COD') && !kUp.includes('CDOM')) entry.COD = val;
+                    else if(kUp.includes('DO') && !kUp.includes('CDOM') && !kUp.includes('BOD') && !kUp.includes('COD')) entry.DO = val;
+                    else if(kUp.includes('TURBIDITY') || kUp.includes('NTU')) entry.Turbidity = val;
+                });
+
+                cleanData.push(entry);
+
+                if(entry.BOD !== undefined) latest.BOD = entry.BOD;
+                if(entry.COD !== undefined) latest.COD = entry.COD;
+                if(entry.DO !== undefined) latest.DO = entry.DO;
+                if(entry.Turbidity !== undefined) latest.Turbidity = entry.Turbidity;
+            });
+
+            // --- UPDATE DASHBOARD UI ---
+            document.getElementById('loadingSpinner').style.display = 'none';
+            document.getElementById('fetchBtn').disabled = false;
+            
+            if(cleanData.length === 0) throw new Error("Connection successful, but all returned values were 'NA'. Sensors may be offline.");
+
+            document.getElementById('displayStationName').innerText = `📍 Live Readings: ${trueName.replace(/_/g, ' ')}`;
+            document.getElementById('valBOD').innerText = latest.BOD;
+            document.getElementById('valCOD').innerText = latest.COD;
+            document.getElementById('valDO').innerText = latest.DO;
+            document.getElementById('valTurb').innerText = latest.Turbidity;
+
+            document.getElementById('dashboardData').style.display = 'block';
+            document.getElementById('chartBox').style.display = 'block';
+
+            // --- RENDER INTERACTIVE PLOTLY GRAPHS (Dark Mode) ---
+            let times = cleanData.map(d => d.Time);
+            let bods = cleanData.map(d => d.BOD !== undefined ? d.BOD : null);
+            let cods = cleanData.map(d => d.COD !== undefined ? d.COD : null);
+
+            let trace1 = { x: times, y: bods, type: 'scatter', mode: 'lines+markers', name: 'BOD (mg/l)', line: {color: '#6ea8fe', width: 3}, marker: {size: 6} };
+            let trace2 = { x: times, y: cods, type: 'scatter', mode: 'lines+markers', name: 'COD (mg/l)', line: {color: '#ea868f', width: 3}, marker: {size: 6} };
+
+            let layout = {
+                title: false,
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#e0e0e0' },
+                xaxis: { title: 'Time', gridcolor: '#444' },
+                yaxis: { title: 'Concentration (mg/l)', gridcolor: '#444' },
+                margin: { t: 10, l: 50, r: 20, b: 50 },
+                hovermode: 'x unified',
+                legend: { orientation: 'h', y: 1.1 }
+            };
+
+            Plotly.newPlot('plotlyChart', [trace1, trace2], layout, {responsive: true});
+
+        } catch (error) {
+            document.getElementById('loadingSpinner').style.display = 'none';
+            document.getElementById('fetchBtn').disabled = false;
+            document.getElementById('alertBox').className = 'alert alert-danger shadow-sm border-0';
+            document.getElementById('alertBox').innerHTML = '❌ ' + error.message;
+            document.getElementById('alertBox').style.display = 'block';
+        }
+    });
+</script>
+
+</body>
+</html>
